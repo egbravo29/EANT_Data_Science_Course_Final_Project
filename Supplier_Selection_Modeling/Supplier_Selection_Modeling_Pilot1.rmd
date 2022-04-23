@@ -1,0 +1,259 @@
+
+Call libraries
+
+```{r}
+library(tidyr)
+library(stringr)
+library(dplyr)
+library(plotly)
+library(factoextra)
+library(cluster)
+library(fpc)
+```
+
+
+
+Pick up datasets
+
+```{r}
+
+bmt = read.csv(file = 'C:/Users/Esteban Guerrero/Documents/Data Science EGB/Proyecto Final/BmtSupplierList2.csv', sep=',', stringsAsFactors = FALSE)
+
+krl = read.csv(file = 'C:/Users/Esteban Guerrero/Documents/Data Science EGB/Proyecto Final/KrlSupplierList2.csv', sep=',', stringsAsFactors = FALSE)
+
+srn = read.csv(file = 'C:/Users/Esteban Guerrero/Documents/Data Science EGB/Proyecto Final/SrnSupplierList2.csv', sep=',', stringsAsFactors = FALSE)
+
+strth = read.csv(file = 'C:/Users/Esteban Guerrero/Documents/Data Science EGB/Proyecto Final/StrthSupplierList2.csv', sep=',', stringsAsFactors = FALSE)
+
+str(bmt)
+
+str(krl)
+
+str(srn)
+
+str(strth)
+
+```
+
+Combine Bmt y Krl
+
+```{r}
+pilot = rbind(bmt, krl) %>% mutate(eCat_Flag = ifelse(eCat_Flag == 'eCat', 1, 0)) %>% mutate(eCat_Flag = as.integer(eCat_Flag)) 
+str(pilot)
+set.seed(999)
+pilot = pilot[sample(1:nrow(pilot)),]
+str(pilot)
+```
+
+Remove variables from datasets
+
+```{r}
+
+pilotNums = pilot %>% mutate(VN = NULL, Vendor_Name_VN = NULL, Price_Range = NULL, BuySmart_Usage = NULL, Main_GMSG = NULL)
+str(pilotNums)
+table(pilotNums$eCat_Flag)
+
+testing1 = sarnia %>% mutate(VN = NULL, Vendor_Name_VN = NULL, eCat_Flag = NULL, Price_Range = NULL, BuySmart_Usage = NULL, Main_GMSG = NULL)
+str(testing1)
+
+testing2 = strathcona %>% mutate(VN = NULL, Vendor_Name_VN = NULL, eCat_Flag = NULL, Price_Range = NULL, BuySmart_Usage = NULL, Main_GMSG = NULL)
+str(testing2)
+
+```
+
+Scale and plot elbow chart through kmeans method
+
+```{r}
+set.seed(1234)
+pilotscaled = scale(pilotNums)
+summary(pilotscaled)
+
+n.clusters <- 14
+wss <- (nrow(pilotscaled)-1)*sum(apply(pilotscaled,2,var))
+for (i in 2:n.clusters){
+  wss[i] <- sum(kmeans(pilotscaled,centers=i)$withinss)
+}
+
+plot(1:n.clusters, wss, type="b", xlab="Number of clusters",
+     ylab="WCV",
+     main="Quantity of clusters per variation ",
+     pch=20, cex=2)
+
+```
+
+Plot WCV to confirm number of clusters
+
+```{r}
+n.clusters <- 14
+wss <- (nrow(pilotscaled)-1)*sum(apply(pilotscaled,2,var))
+for (i in 2:n.clusters){
+  wss[i] <- sum(kmeans(pilotscaled,centers=i)$betweenss)
+}
+
+plot(1:n.clusters, wss, type="b", xlab="número de clusters",
+     ylab="WCV",
+     main="Quantity of clusters per variation ",
+     pch=20, cex=2)
+
+```
+
+Clusterizar con c=3
+
+```{r}
+fit <- kmeans(pilotscaled, centers=3, iter.max = 1000)
+aggregate(pilotscaled,by=list(fit$cluster),FUN=mean)
+print(fit)
+fit$withinss
+boxplot(pilotNums$Calloff_Trans ~fit$cluster)
+
+
+```
+Incorporate clustering column to dataset before balancing
+
+```{r}
+str(pilot)
+pilot = data.frame(pilot, fit$cluster)
+pilot$fit.cluster = as.factor(pilot$fit.cluster)
+str(pilot)
+
+```
+
+Balance based on eCat_Flag variable and divide dataset in training and validation
+
+```{r}
+
+positiveclassIxs = which(pilot$eCat_Flag == 1)
+negativeclassIxs = which(pilot$eCat_Flag == 0)
+
+PropPositives = length(positiveclassIxs) / nrow(pilot)
+
+positiveclassIxs.sample = sample(positiveclassIxs, floor(0.7 * nrow(pilot) * PropPositives))
+str(positiveclassIxs.sample)
+negativeclassIxs.sample = sample(negativeclassIxs, floor(0.7 * nrow(pilot) * (1 - PropPositives)))
+str(negativeclassIxs.sample)
+
+trainingIndex = c(positiveclassIxs.sample, negativeclassIxs.sample)
+validacionIndex = seq_len(nrow(pilot))[!seq_len(nrow(pilot)) %in% trainingIndex]
+
+trainingpilot = pilot[trainingIndex, ]
+table(trainingpilot$eCat_Flag)
+validacionpilot = pilot[validacionIndex, ]
+table(validacionpilot$eCat_Flag)
+
+```
+
+Model with ligistic regression
+
+```{r}
+ecuation = 'eCat_Flag~Sum_of_PO_Amt_USD+Count_of_PO_Num+Calloff_Spend+Calloff_Trans+MRP_Requisition_Ratio+Min_Price+Max_Price'
+modeloLog = glm(ecuation, binomial(link='logit'),data=trainingpilot)
+summary(modeloLog)
+
+prediccion1 = predict(modeloLog, validacionpilot, type='response')
+str(prediccion1)
+
+modelo1 = data.frame(validacionpilot, prediccion1)
+str(modelo1)
+
+```
+
+Calculate metrics to determine best probability threshdold
+
+```{r}
+
+real = data.frame(validacionpilot$eCat_Flag)
+pred = data.frame(prediccion1)
+
+confusion = data.frame(real, pred, valoracion = '', evaluacion = '')
+i = 1
+matrizconf = data.frame(umbral2 = double(), accurracy = double(), precision = double(), sensibilidad = double(), especificidad = double())
+
+for (umbral in seq(0, 1, 0.05)){
+
+confusion$valoracion = ifelse(confusion$prediccion1 > umbral, 1, 0)
+
+confusion = confusion %>% mutate(evaluacion = ifelse(validacionpilot.eCat_Flag == 1 & valoracion == 1, 'VP', evaluacion))%>% mutate(evaluacion = ifelse(validacionpilot.eCat_Flag == 1 & valoracion == 0, 'FN', evaluacion)) %>% mutate(evaluacion = ifelse(validacionpilot.eCat_Flag == 0 & valoracion == 1, 'FP', evaluacion)) %>% mutate(evaluacion = ifelse(validacionpilot.eCat_Flag == 0 & valoracion == 0, 'VN', evaluacion))
+
+vp =  length(which(confusion$evaluacion == 'VP'))
+fn =  length(which(confusion$evaluacion == 'FN'))
+fp =  length(which(confusion$evaluacion == 'FP'))
+vn =  length(which(confusion$evaluacion == 'VN'))
+total = length(confusion$evaluacion)
+
+accuracy = (vp + vn) / total
+precision = vp / (vp + fp)
+sensibilidad = vp / (vp + fn)
+especificidad = vn / (fp + vn)
+
+c = c(umbral, accuracy, precision, sensibilidad, especificidad)
+
+matrizconf[i, ] = c
+i = i + 1
+}
+
+matrizconf
+
+```
+
+Plot all metrics
+
+```{r}
+p = plot_ly(matrizconf, x = ~umbral2, y = ~sensibilidad, mode = 'lines+markers', name = 'sensibilidad', type = 'scatter') %>% add_trace(x = ~umbral2, y = ~especificidad, name = 'especificidad', mode = 'lines+markers') %>% add_trace(x = ~umbral2, y = ~accuracy, name = 'accuracy', mode = 'lines+markers') %>% add_trace(x = ~umbral2, y = ~precision, name = 'precision', mode = 'lines+markers', color = I('black'))
+p
+
+```
+
+Plot ROC Curve
+
+```{r}
+p = plot_ly(matrizconf, x = ~especificidad, y = ~sensibilidad, type = 'scatter', mode = 'lines+markers') %>% add_segments(x = 0, xend = 1, y = 0, yend = 1) %>% layout(showlegend = FALSE) %>% layout(title = 'Curva ROC')
+p
+```
+
+According to cut point between specificity and sensibility curves and confirming with the ROC curve, the optimal probability threshdold is 0.028
+
+Calculate RMSE
+
+```{r}
+estimacion = data.frame(validacionpilot$eCat_Flag, prediccion1)
+estimacion$estimado = ifelse(estimacion$prediccion1 >= 0.028, 1, 0)
+str(estimacion)
+
+RMSE = sqrt(mean((estimacion$validacionpilot.eCat_Flag - estimacion$estimado)^2))
+paste('RMSE =', round(RMSE, 4), sep = ' ')
+
+```
+
+Calculate confusion matrix metrics according to selected threshdold
+
+```{r}
+
+real = data.frame(validacionpilot$eCat_Flag)
+pred = data.frame(prediccion1)
+
+confusion = data.frame(real, pred, valoracion = '', evaluacion = '')
+
+matrizconf = data.frame(umbral2 = double(), accurracy = double(), precision = double(), sensibilidad = double(), especificidad = double())
+
+confusion$valoracion = ifelse(confusion$prediccion1 >= 0.028, 1, 0)
+
+confusion = confusion %>% mutate(evaluacion = ifelse(validacionpilot.eCat_Flag == 1 & valoracion == 1, 'VP', evaluacion))%>% mutate(evaluacion = ifelse(validacionpilot.eCat_Flag == 1 & valoracion == 0, 'FN', evaluacion)) %>% mutate(evaluacion = ifelse(validacionpilot.eCat_Flag == 0 & valoracion == 1, 'FP', evaluacion)) %>% mutate(evaluacion = ifelse(validacionpilot.eCat_Flag == 0 & valoracion == 0, 'VN', evaluacion))
+
+vp =  length(which(confusion$evaluacion == 'VP'))
+fn =  length(which(confusion$evaluacion == 'FN'))
+fp =  length(which(confusion$evaluacion == 'FP'))
+vn =  length(which(confusion$evaluacion == 'VN'))
+total = length(confusion$evaluacion)
+
+accuracy = (vp + vn) / total
+precision = vp / (vp + fp)
+sensibilidad = vp / (vp + fn)
+especificidad = vn / (fp + vn)
+
+paste('Accuracy =', round(accuracy, 4), sep = ' ')
+paste('Precision =', round(precision, 4), sep = ' ')
+paste('Sensibilidad =', round(sensibilidad, 4), sep = ' ')
+paste('Especificidad =', round(especificidad, 4), sep = ' ')
+```
+
+
