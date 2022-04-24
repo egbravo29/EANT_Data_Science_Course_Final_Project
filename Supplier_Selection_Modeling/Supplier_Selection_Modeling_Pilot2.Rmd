@@ -1,4 +1,3 @@
-
 Call libraries
 
 ```{r}
@@ -17,13 +16,13 @@ Pick up datasets
 
 ```{r}
 
-bmt = read.csv(file = 'C:/Users/Esteban Guerrero/Documents/Data Science EGB/Proyecto Final/BmtSupplierList2.csv', sep=',', stringsAsFactors = FALSE)
+bmt = read.csv(file = 'C:/Users/Esteban Guerrero/Documents/Data Science EGB/Proyecto Final/BmtSupplierList.csv', sep=',', stringsAsFactors = FALSE)
 
-krl = read.csv(file = 'C:/Users/Esteban Guerrero/Documents/Data Science EGB/Proyecto Final/KrlSupplierList2.csv', sep=',', stringsAsFactors = FALSE)
+krl = read.csv(file = 'C:/Users/Esteban Guerrero/Documents/Data Science EGB/Proyecto Final/KrlSupplierList.csv', sep=',', stringsAsFactors = FALSE)
 
-srn = read.csv(file = 'C:/Users/Esteban Guerrero/Documents/Data Science EGB/Proyecto Final/SrnSupplierList2.csv', sep=',', stringsAsFactors = FALSE)
+srn = read.csv(file = 'C:/Users/Esteban Guerrero/Documents/Data Science EGB/Proyecto Final/SrnSupplierList.csv', sep=',', stringsAsFactors = FALSE)
 
-strth = read.csv(file = 'C:/Users/Esteban Guerrero/Documents/Data Science EGB/Proyecto Final/StrthSupplierList2.csv', sep=',', stringsAsFactors = FALSE)
+strth = read.csv(file = 'C:/Users/Esteban Guerrero/Documents/Data Science EGB/Proyecto Final/StrthSupplierList.csv', sep=',', stringsAsFactors = FALSE)
 
 str(bmt)
 
@@ -97,10 +96,10 @@ plot(1:n.clusters, wss, type="b", xlab="Number of clusters",
 
 ```
 
-Cluster with c=3
+Cluster with c=6
 
 ```{r}
-fit <- kmeans(pilotscaled, centers=3, iter.max = 1000)
+fit <- kmeans(pilotscaled, centers=6, iter.max = 1000)
 aggregate(pilotscaled,by=list(fit$cluster),FUN=mean)
 print(fit)
 fit$withinss
@@ -146,6 +145,21 @@ Model with ligistic regression
 
 ```{r}
 ecuation = 'eCat_Flag~Sum_of_PO_Amt_USD+Count_of_PO_Num+Calloff_Spend+Calloff_Trans+MRP_Requisition_Ratio+Min_Price+Max_Price'
+modeloLog = glm(ecuation, binomial(link='logit'),data=trainingpilot)
+summary(modeloLog)
+
+prediccion1 = predict(modeloLog, validacionpilot, type='response')
+str(prediccion1)
+
+modelo1 = data.frame(validacionpilot, prediccion1)
+str(modelo1)
+
+```
+
+Remodel with logistic regression but only with higher weight variables
+
+```{r}
+ecuation = 'eCat_Flag~Sum_of_PO_Amt_USD+Calloff_Trans+Max_Price'
 modeloLog = glm(ecuation, binomial(link='logit'),data=trainingpilot)
 summary(modeloLog)
 
@@ -210,13 +224,13 @@ p = plot_ly(matrizconf, x = ~especificidad, y = ~sensibilidad, type = 'scatter',
 p
 ```
 
-According to cut point between specificity and sensibility curves and confirming with the ROC curve, the optimal probability threshdold is 0.028
+According to cut point between specificity and sensibility curves and confirming with the ROC curve, the optimal probability threshdold is 0.057
 
 Calculate RMSE
 
 ```{r}
 estimacion = data.frame(validacionpilot$eCat_Flag, prediccion1)
-estimacion$estimado = ifelse(estimacion$prediccion1 >= 0.028, 1, 0)
+estimacion$estimado = ifelse(estimacion$prediccion1 >= 0.057, 1, 0)
 str(estimacion)
 
 RMSE = sqrt(mean((estimacion$validacionpilot.eCat_Flag - estimacion$estimado)^2))
@@ -235,7 +249,7 @@ confusion = data.frame(real, pred, valoracion = '', evaluacion = '')
 
 matrizconf = data.frame(umbral2 = double(), accurracy = double(), precision = double(), sensibilidad = double(), especificidad = double())
 
-confusion$valoracion = ifelse(confusion$prediccion1 >= 0.028, 1, 0)
+confusion$valoracion = ifelse(confusion$prediccion1 >= 0.057, 1, 0)
 
 confusion = confusion %>% mutate(evaluacion = ifelse(validacionpilot.eCat_Flag == 1 & valoracion == 1, 'VP', evaluacion))%>% mutate(evaluacion = ifelse(validacionpilot.eCat_Flag == 1 & valoracion == 0, 'FN', evaluacion)) %>% mutate(evaluacion = ifelse(validacionpilot.eCat_Flag == 0 & valoracion == 1, 'FP', evaluacion)) %>% mutate(evaluacion = ifelse(validacionpilot.eCat_Flag == 0 & valoracion == 0, 'VN', evaluacion))
 

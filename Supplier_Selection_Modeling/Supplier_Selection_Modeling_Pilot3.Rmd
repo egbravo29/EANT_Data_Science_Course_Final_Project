@@ -9,21 +9,21 @@ library(plotly)
 library(factoextra)
 library(cluster)
 library(fpc)
+library(rpart)
+library(rpart.plot)
 ```
-
-
 
 Pick up datasets
 
 ```{r}
 
-bmt = read.csv(file = 'C:/Users/Esteban Guerrero/Documents/Data Science EGB/Proyecto Final/BmtSupplierList2.csv', sep=',', stringsAsFactors = FALSE)
+bmt = read.csv(file = 'C:/Users/Esteban Guerrero/Documents/Data Science EGB/Proyecto Final/BmtSupplierList.csv', sep=',', stringsAsFactors = FALSE)
 
-krl = read.csv(file = 'C:/Users/Esteban Guerrero/Documents/Data Science EGB/Proyecto Final/KrlSupplierList2.csv', sep=',', stringsAsFactors = FALSE)
+krl = read.csv(file = 'C:/Users/Esteban Guerrero/Documents/Data Science EGB/Proyecto Final/KrlSupplierList.csv', sep=',', stringsAsFactors = FALSE)
 
-srn = read.csv(file = 'C:/Users/Esteban Guerrero/Documents/Data Science EGB/Proyecto Final/SrnSupplierList2.csv', sep=',', stringsAsFactors = FALSE)
+srn = read.csv(file = 'C:/Users/Esteban Guerrero/Documents/Data Science EGB/Proyecto Final/SrnSupplierList.csv', sep=',', stringsAsFactors = FALSE)
 
-strth = read.csv(file = 'C:/Users/Esteban Guerrero/Documents/Data Science EGB/Proyecto Final/StrthSupplierList2.csv', sep=',', stringsAsFactors = FALSE)
+strth = read.csv(file = 'C:/Users/Esteban Guerrero/Documents/Data Science EGB/Proyecto Final/StrthSupplierList.csv', sep=',', stringsAsFactors = FALSE)
 
 str(bmt)
 
@@ -38,7 +38,7 @@ str(strth)
 Combine Bmt y Krl
 
 ```{r}
-pilot = rbind(bmt, krl) %>% mutate(eCat_Flag = ifelse(eCat_Flag == 'eCat', 1, 0)) %>% mutate(eCat_Flag = as.integer(eCat_Flag)) 
+pilot = rbind(bmt, kearl) %>% mutate(eCat_Flag = ifelse(eCat_Flag == 'eCat', 1, 0)) %>% mutate(eCat_Flag = as.integer(eCat_Flag)) 
 str(pilot)
 set.seed(999)
 pilot = pilot[sample(1:nrow(pilot)),]
@@ -61,59 +61,52 @@ str(testing2)
 
 ```
 
-Scale and plot elbow chart through kmeans method
+Scale and plot elbow chart for PAM
 
 ```{r}
-set.seed(1234)
+set.seed(678901)
 pilotscaled = scale(pilotNums)
 summary(pilotscaled)
 
-n.clusters <- 14
-wss <- (nrow(pilotscaled)-1)*sum(apply(pilotscaled,2,var))
-for (i in 2:n.clusters){
-  wss[i] <- sum(kmeans(pilotscaled,centers=i)$withinss)
-}
-
-plot(1:n.clusters, wss, type="b", xlab="Number of clusters",
-     ylab="WCV",
-     main="Quantity of clusters per variation ",
-     pch=20, cex=2)
+fviz_nbclust(pilotscaled, pam, method = 'wss')
 
 ```
 
-Plot WCV to confirm number of clusters
+Method average silhouette for PAM to confirm the number of clusters
 
 ```{r}
-n.clusters <- 14
-wss <- (nrow(pilotscaled)-1)*sum(apply(pilotscaled,2,var))
-for (i in 2:n.clusters){
-  wss[i] <- sum(kmeans(pilotscaled,centers=i)$betweenss)
-}
-
-plot(1:n.clusters, wss, type="b", xlab="Number of clusters",
-     ylab="WCV",
-     main="Quantity of clusters per variation ",
-     pch=20, cex=2)
+fviz_nbclust(pilotscaled, pam, method = 'silhouette')
 
 ```
 
-Cluster with c=3
+Cluster with PAM with c=6
 
 ```{r}
-fit <- kmeans(pilotscaled, centers=3, iter.max = 1000)
-aggregate(pilotscaled,by=list(fit$cluster),FUN=mean)
-print(fit)
-fit$withinss
-boxplot(pilotNums$Calloff_Trans ~fit$cluster)
 
+m.gower = daisy(pilotscaled, metric = c('gower'), stand = TRUE)
+pam.res = pam(m.gower, 6)
+str(pam.res)
+
+aggregate(pilotscaled,by=list(pam.res$clustering),FUN=mean)
+pam.res$medoids
+boxplot(pilotNums$Calloff_Trans ~pam.res$clustering)
 
 ```
+
+Plot pilot dataset based on clusters, size of dots based on calloff transactions
+
+```{r}
+pilotscaled2 = data.frame(pilotscaled)
+pilotscaled2$clusters = pam.res$clustering 
+p = plot_ly(pilotscaled2, x = ~Sum_of_PO_Amt_USD, y = ~Count_of_PO_Num, mode = 'markers', name = ~clusters, type = 'scatter', color = ~clusters, size = ~Calloff_Spend) %>% layout(title = 'Clustering scaled c=6 PAM, spend vs trans, calloff spend')
+p
+
+```
+
 Incorporate clustering column to dataset before balancing
 
 ```{r}
-str(pilot)
-pilot = data.frame(pilot, fit$cluster)
-pilot$fit.cluster = as.factor(pilot$fit.cluster)
+pilot = data.frame(pilot, pam.res$clustering)
 str(pilot)
 
 ```
@@ -142,35 +135,44 @@ table(validacionpilot$eCat_Flag)
 
 ```
 
-Model with ligistic regression
+Train decision tree
 
 ```{r}
-ecuation = 'eCat_Flag~Sum_of_PO_Amt_USD+Count_of_PO_Num+Calloff_Spend+Calloff_Trans+MRP_Requisition_Ratio+Min_Price+Max_Price'
-modeloLog = glm(ecuation, binomial(link='logit'),data=trainingpilot)
-summary(modeloLog)
-
-prediccion1 = predict(modeloLog, validacionpilot, type='response')
-str(prediccion1)
-
-modelo1 = data.frame(validacionpilot, prediccion1)
-str(modelo1)
-
+fmla = 'eCat_Flag~Sum_of_PO_Amt_USD+Count_of_PO_Num+Calloff_Spend+Calloff_Trans+MRP_Requisition_Ratio+Min_Price+Max_Price'
+arbol = rpart(fmla, data = trainingpilot)
+arbol
 ```
 
-Calculate metrics to determine best probability threshdold
+Plot decision tree
+
+```{r}
+rpart.plot(arbol, fallen.leaves = FALSE, type = 2)
+```
+
+Predict with decision tree
+
+```{r}
+prediccionarbol = predict(arbol, validacionpilot, type = 'vector')
+predict1 = data.frame(prediccionarbol)
+str(predict1)
+```
+
+Calculate metrics to determine the best probability threshdold
 
 ```{r}
 
 real = data.frame(validacionpilot$eCat_Flag)
-pred = data.frame(prediccion1)
+pred = predict1
 
 confusion = data.frame(real, pred, valoracion = '', evaluacion = '')
+
 i = 1
 matrizconf = data.frame(umbral2 = double(), accurracy = double(), precision = double(), sensibilidad = double(), especificidad = double())
+str(matrizconf)
 
 for (umbral in seq(0, 1, 0.05)){
 
-confusion$valoracion = ifelse(confusion$prediccion1 > umbral, 1, 0)
+confusion$valoracion = ifelse(confusion$prediccionarbol > umbral, 1, 0)
 
 confusion = confusion %>% mutate(evaluacion = ifelse(validacionpilot.eCat_Flag == 1 & valoracion == 1, 'VP', evaluacion))%>% mutate(evaluacion = ifelse(validacionpilot.eCat_Flag == 1 & valoracion == 0, 'FN', evaluacion)) %>% mutate(evaluacion = ifelse(validacionpilot.eCat_Flag == 0 & valoracion == 1, 'FP', evaluacion)) %>% mutate(evaluacion = ifelse(validacionpilot.eCat_Flag == 0 & valoracion == 0, 'VN', evaluacion))
 
@@ -210,16 +212,17 @@ p = plot_ly(matrizconf, x = ~especificidad, y = ~sensibilidad, type = 'scatter',
 p
 ```
 
-According to cut point between specificity and sensibility curves and confirming with the ROC curve, the optimal probability threshdold is 0.028
+According to cut point between specificity and sensibility curves and confirming with the ROC curve, the optimal probability threshdold is 0.037
 
 Calculate RMSE
 
 ```{r}
-estimacion = data.frame(validacionpilot$eCat_Flag, prediccion1)
-estimacion$estimado = ifelse(estimacion$prediccion1 >= 0.028, 1, 0)
+estimacion = data.frame(validacionpilot$eCat_Flag, predict1$prediccionarbol)
+str(estimacion)
+estimacion$estimado = ifelse(estimacion$predict1.prediccionarbol >= 0.037, 1, 0)
 str(estimacion)
 
-RMSE = sqrt(mean((estimacion$validacionpilot.eCat_Flag - estimacion$estimado)^2))
+RMSE = sqrt(mean((estimacion$validacionpilot.eCat_Flag - estimacion$predict1.prediccionarbol)^2))
 paste('RMSE =', round(RMSE, 4), sep = ' ')
 
 ```
@@ -229,13 +232,13 @@ Calculate confusion matrix metrics according to selected threshdold
 ```{r}
 
 real = data.frame(validacionpilot$eCat_Flag)
-pred = data.frame(prediccion1)
+pred = data.frame(predict1)
 
 confusion = data.frame(real, pred, valoracion = '', evaluacion = '')
 
 matrizconf = data.frame(umbral2 = double(), accurracy = double(), precision = double(), sensibilidad = double(), especificidad = double())
 
-confusion$valoracion = ifelse(confusion$prediccion1 >= 0.028, 1, 0)
+confusion$valoracion = ifelse(confusion$prediccionarbol >= 0.037, 1, 0)
 
 confusion = confusion %>% mutate(evaluacion = ifelse(validacionpilot.eCat_Flag == 1 & valoracion == 1, 'VP', evaluacion))%>% mutate(evaluacion = ifelse(validacionpilot.eCat_Flag == 1 & valoracion == 0, 'FN', evaluacion)) %>% mutate(evaluacion = ifelse(validacionpilot.eCat_Flag == 0 & valoracion == 1, 'FP', evaluacion)) %>% mutate(evaluacion = ifelse(validacionpilot.eCat_Flag == 0 & valoracion == 0, 'VN', evaluacion))
 
@@ -256,4 +259,25 @@ paste('Sensibilidad =', round(sensibilidad, 4), sep = ' ')
 paste('Especificidad =', round(especificidad, 4), sep = ' ')
 ```
 
+By comparing metrics of the two models of logistic regression, the decision tree model shows beter performance
+
+Predecir con los datasets de Srn y Strth (testing)
+
+
+```{r}
+predprobsrn = predict(arbol, srn, type = 'vector')
+predprobstrth = predict(arbol, strth, type = 'vector')
+
+SrnPrediccion = data.frame(srn, predprobsrn)
+SrnPrediccion$prediccion = ifelse(SrnPrediccion$predprobsrn >= 0.037, 1, 0)
+table(SrnPrediccion$prediccion)
+
+write.csv(SrnPrediccion, file = 'C:/Users/Esteban Guerrero/Documents/Data Science EGB/Proyecto Final/SrnPrediccion.csv')
+
+StrthPrediccion = data.frame(strth, predprobstrth)
+StrthPrediccion$prediccion = ifelse(StrthPrediccion$predprobstrth >= 0.037, 1, 0)
+table(StrthPrediccion$prediccion)
+
+write.csv(strthPrediccion, file = 'C:/Users/Esteban Guerrero/Documents/Data Science EGB/Proyecto Final/StrthPrediccion.csv')
+```
 

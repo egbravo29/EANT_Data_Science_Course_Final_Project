@@ -1,0 +1,197 @@
+Call libraries
+
+```{r}
+library(tidyr)
+library(stringr)
+library(dplyr)
+library(plotly)
+library(factoextra)
+library(cluster)
+library(fpc)
+library(corrplot)
+```
+
+Pick up data
+
+```{r}
+
+bmt = read.csv(file = 'C:/Users/Esteban Guerrero/Documents/Data Science EGB/Proyecto Final/BmtSupplierList.csv', sep=',', stringsAsFactors = FALSE)
+bmt$site = 'Bmt'
+
+krl = read.csv(file = 'C:/Users/Esteban Guerrero/Documents/Data Science EGB/Proyecto Final/KrlSupplierList.csv', sep=',', stringsAsFactors = FALSE)
+krl$site = 'Krl'
+
+srn = read.csv(file = 'C:/Users/Esteban Guerrero/Documents/Data Science EGB/Proyecto Final/SrnSupplierList.csv', sep=',', stringsAsFactors = FALSE)
+srn$site = 'Srn'
+
+strth = read.csv(file = 'C:/Users/Esteban Guerrero/Documents/Data Science EGB/Proyecto Final/StrthSupplierList.csv', sep=',', stringsAsFactors = FALSE)
+strth$site = 'Strth'
+
+str(bmt)
+
+str(krl)
+
+str(srn)
+
+str(strth)
+
+```
+
+Combine datasets
+
+```{r}
+sites = rbind(mbt, krl, srn, strth)
+sites$eCat_Flag = ifelse(sites$eCat_Flag =='eCat', 'eCat', 'Non eCat')
+table(sites$eCat_Flag)
+str(sites)
+```
+
+Appreciate proportion of onboarded suppliers for Bmt and Krl and distribution of the GMSG variable
+
+```{r}
+p = sites %>% filter(sites$site == 'Krl' | sites$site == 'Bmt') %>% group_by(eCat_Flag) %>% summarise(count = n()) %>% plot_ly(labels = ~eCat_Flag, values = ~count) %>% add_pie(hole = 0.6)
+p
+
+p = sites %>% group_by(Main_GMSG) %>% summarise(count = n()) %>% plot_ly(x = ~Main_GMSG, y = ~count, type = 'bar') %>%layout( barmode = 'stack')
+p
+
+```
+
+Boxplot spend per site
+
+```{r}
+p = plot_ly(sites, y = ~Sum_of_PO_Amt_USD, color = ~site,  x = ~site, type = 'box')
+p
+```
+
+Boxplot transactions per site
+
+```{r}
+p = plot_ly(sites, y = ~Count_of_PO_Num, color = ~site,  x = ~site, type = 'box')
+p
+```
+
+```{r}
+p = plot_ly(sites, x = ~Count_of_PO_Num, y = ~Sum_of_PO_Amt_USD, color = ~Calloff_Trans)
+p
+
+```
+
+Identify correlations between varialbes
+
+```{r}
+temp1 = sites
+temp1 = temp1 %>% filter(temp1$site == 'Bmt' | temp1$site == 'Krl')
+str(temp1)
+temp1$eCatTemp = ifelse(temp1$eCat_Flag == 'eCat', 1, 0)
+temp1$eCat_Flag = NULL
+temp1$VN = NULL
+temp1$Vendor_Name_VN = NULL
+temp1$Main_GMSG = NULL
+temp1$site = NULL
+str(temp1)
+mcor = cor(temp1)
+mcor
+
+corrplot(mcor, type = 'upper', order = 'hclust', tl.col = 'black', tl.srt = 45)
+
+```
+
+
+Identify outliers per spend (interquartiles method)
+
+```{r}
+
+quantiles = quantile(sites$Sum_of_PO_Amt_USD, probs = c(.25, .75))
+str(quantiles)
+range = 1.5 * IQR(sites$Sum_of_PO_Amt_USD)
+range
+normal_gdp = subset(sites, sites$Sum_of_PO_Amt_USD > (quantiles[1] - range) & sites$Sum_of_PO_Amt_USD < (quantiles[2] + range))
+str(normal_gdp)
+```
+
+Identify outliers per transactions (interquartiles method)
+
+```{r}
+
+quantiles = quantile(normal_gdp$Count_of_PO_Num, probs = c(.25, .75))
+str(quantiles)
+range = 1.5 * IQR(normal_gdp$Count_of_PO_Num)
+range
+normal_gdp = subset(normal_gdp, normal_gdp$Count_of_PO_Num > (quantiles[1] - range) & normal_gdp$Count_of_PO_Num < (quantiles[2] + range))
+str(normal_gdp)
+
+```
+
+Boxplot spend per site
+
+```{r}
+p = plot_ly(normal_gdp, y = ~Sum_of_PO_Amt_USD, color = ~site,  x = ~site, type = 'box')
+p
+```
+
+Boxplot transactions per site
+
+```{r}
+p = plot_ly(normal_gdp, y = ~Count_of_PO_Num, color = ~site,  x = ~site, type = 'box')
+p
+```
+
+
+```{r}
+p = plot_ly(normal_gdp, x = ~Count_of_PO_Num, y = ~Sum_of_PO_Amt_USD, color = ~Calloff_Trans)
+p
+
+```
+
+Plot proportion of onboarded suppliers for Bmt and Krl and GMSG variable distribution
+
+```{r}
+p = normal_gdp %>% filter(normal_gdp$site == 'Krl' | normal_gdp$site == 'Bmt') %>% group_by(eCat_Flag) %>% summarise(count = n()) %>% plot_ly(labels = ~eCat_Flag, values = ~count) %>% add_pie(hole = 0.6)
+p
+
+p = normal_gdp %>% group_by(Main_GMSG) %>% summarise(count = n()) %>% plot_ly(x = ~Main_GMSG, y = ~count, type = 'bar') %>%layout( barmode = 'stack')
+p
+
+```
+
+Identificar correlaciones entre variables
+
+```{r}
+temp1 = normal_gdp
+temp1 = temp1 %>% filter(temp1$site == 'Bmt' | temp1$site == 'Krl')
+str(temp1)
+temp1$eCatTemp = ifelse(temp1$eCat_Flag == 'eCat', 1, 0)
+temp1$eCat_Flag = NULL
+temp1$VN = NULL
+temp1$Vendor_Name_VN = NULL
+temp1$Main_GMSG = NULL
+temp1$site = NULL
+str(temp1)
+mcor = cor(temp1)
+mcor
+
+corrplot(mcor, type = 'upper', order = 'hclust', tl.col = 'black', tl.srt = 45)
+
+```
+
+Generate new files without outliers
+
+```{r}
+BmtSupplierList2 = normal_gdp %>% filter(normal_gdp$site == 'Bmt') %>% mutate(site = NULL)
+write.csv(BmtSupplierList2, file = 'C:/Users/Esteban Guerrero/Documents/Data Science EGB/Proyecto Final/BmtSupplierList2.csv', row.names = FALSE)
+
+KrlSupplierList2 = normal_gdp %>% filter(normal_gdp$site == 'Krl') %>% mutate(site = NULL)
+write.csv(KrlSupplierList2, file = 'C:/Users/Esteban Guerrero/Documents/Data Science EGB/Proyecto Final/KrlSupplierList2.csv', row.names = FALSE)
+
+SrnSupplierList2 = normal_gdp %>% filter(normal_gdp$site == 'Srn') %>% mutate(site = NULL)
+write.csv(SrnSupplierList2, file = 'C:/Users/Esteban Guerrero/Documents/Data Science EGB/Proyecto Final/SrnSupplierList2.csv', row.names = FALSE)
+
+StrthSupplierList2 = normal_gdp %>% filter(normal_gdp$site == 'Strth') %>% mutate(site = NULL)
+write.csv(StrthSupplierList2, file = 'C:/Users/Esteban Guerrero/Documents/Data Science EGB/Proyecto Final/StrthSupplierList2.csv', row.names = FALSE)
+
+```
+
+
+
+
